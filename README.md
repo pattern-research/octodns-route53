@@ -71,7 +71,7 @@ In general the account used will need read permissions on EC2 instances.
 
 Records are driven off of the tags attached to the EC2 instances. The "Name" tag and any tags starting with `tag_prefix` are considered.
 
-The value of the tag should be one or more fqdns separated by a `/` character.
+The value of the tag should be one or more fqdns separated by a `/` character. You can append a string to the name and all tag values with `tag_append`.
 
 When a zone is being populated any fqdns matching the zone name will result in records. When the instance has a private IPv4 address an A record will be created. When the instance has an IPv6 address a AAAA record will be created.
 
@@ -99,7 +99,7 @@ In general the account used will need read permissions on ELB instances and tags
 
 Records are driven off of the ELB name and the tags attached to the ELB instances. Any tag with `tag_prefix` is considered.
 
-The value of the tag should be one or more fqdns separated by a `/` character.
+The value of the tag should be one or more fqdns separated by a `/` character. You can append a string to the name and all tag values with `tag_append`.
 
 When a zone is being populated any fqdns matching the zone name will result in records CNAME records with the target value being the DNSName of the ELB instance.
 
