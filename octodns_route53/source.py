@@ -47,41 +47,45 @@ class Ec2Source(_AuthMixin, BaseSource):
 
         super().__init__(id, *args, **kwargs)
 
-        self._conn = self.client(
+        if isinstance(region, str):
+            region = [region]
+
+        self._conns = [self.client(
             service_name='ec2',
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
             session_token=session_token,
             role_arn=role_arn,
             client_max_attempts=client_max_attempts,
-            region_name=region,
-        )
+            region_name=region_str,
+        ) for region_str in region]
 
         self._instances = None
 
     @property
     def instances(self):
         if self._instances is None:
-            resp = self._conn.describe_instances()
             instances = {}
-            for reservation in resp['Reservations']:
-                for instance in reservation['Instances']:
-                    # process tags
-                    fqdns = []
-                    for tag in instance.get('Tags', []):
-                        key = tag['Key']
-                        val = tag['Value']
-                        if key == 'Name':
-                            fqdns.append(val + self.tag_append)
-                        elif key.startswith(self.tag_prefix):
-                            fqdns.extend([fqdn + self.tag_append for fqdn in val.split('/')])
+            for conn in self._conns:
+                resp = conn.describe_instances()
+                for reservation in resp['Reservations']:
+                    for instance in reservation['Instances']:
+                        # process tags
+                        fqdns = []
+                        for tag in instance.get('Tags', []):
+                            key = tag['Key']
+                            val = tag['Value']
+                            if key == 'Name':
+                                fqdns.append(val + self.tag_append)
+                            elif key.startswith(self.tag_prefix):
+                                fqdns.extend([fqdn + self.tag_append for fqdn in val.split('/')])
 
-                    fqdns = [f'{i}.' if i[-1] != '.' else i for i in fqdns]
-                    instances[instance['InstanceId']] = {
-                        'private_v4': instance.get('PrivateIpAddress'),
-                        'v6': instance.get('Ipv6Address'),
-                        'fqdns': fqdns,
-                    }
+                        fqdns = [f'{i}.' if i[-1] != '.' else i for i in fqdns]
+                        instances[instance['InstanceId']] = {
+                            'private_v4': instance.get('PrivateIpAddress'),
+                            'v6': instance.get('Ipv6Address'),
+                            'fqdns': fqdns,
+                        }
 
             # so to get a determinate order, then discard the key
             instances = [i[1] for i in sorted(instances.items())]
@@ -222,15 +226,18 @@ class ElbSource(_AuthMixin, BaseSource):
 
         super().__init__(id, *args, **kwargs)
 
-        self._conn = self.client(
+        if isinstance(region, str):
+            region = [region]
+
+        self._conns = [self.client(
             service_name='elbv2',
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
             session_token=session_token,
             role_arn=role_arn,
             client_max_attempts=client_max_attempts,
-            region_name=region,
-        )
+            region_name=region_str,
+        ) for region_str in region]
 
         self._lbs = None
 
@@ -238,35 +245,36 @@ class ElbSource(_AuthMixin, BaseSource):
     def lbs(self):
         if self._lbs is None:
             # build the list of load balancers
-            resp = self._conn.describe_load_balancers()
             lbs = {}
-            for lb in resp['LoadBalancers']:
-                arn = lb['LoadBalancerArn']
-                lbs[arn] = {
-                    'dns_name': f'{lb["DNSName"]}.',
-                    'fqdns': [lb['LoadBalancerName'] + self.tag_append],
-                }
+            for conn in self._conns:
+                resp = self._conn.describe_load_balancers()
+                for lb in resp['LoadBalancers']:
+                    arn = lb['LoadBalancerArn']
+                    lbs[arn] = {
+                        'dns_name': f'{lb["DNSName"]}.',
+                        'fqdns': [lb['LoadBalancerName'] + self.tag_append],
+                    }
 
-            # request tags and look through them for fqdns
-            arns = list(lbs.keys())
-            if arns:
-                resp = self._conn.describe_tags(ResourceArns=arns)
-                for td in resp['TagDescriptions']:
-                    arn = td['ResourceArn']
-                    lb = lbs[arn]
-                    for tag in td.get('Tags', []):
-                        key = tag['Key']
-                        val = tag['Value']
-                        if key.startswith(self.tag_prefix):
-                            lb['fqdns'].extend([fqdn + self.tag_append for fqdn in val.split('/')])
+                # request tags and look through them for fqdns
+                arns = list(lbs.keys())
+                if arns:
+                    resp = self._conn.describe_tags(ResourceArns=arns)
+                    for td in resp['TagDescriptions']:
+                        arn = td['ResourceArn']
+                        lb = lbs[arn]
+                        for tag in td.get('Tags', []):
+                            key = tag['Key']
+                            val = tag['Value']
+                            if key.startswith(self.tag_prefix):
+                                lb['fqdns'].extend([fqdn + self.tag_append for fqdn in val.split('/')])
 
-            for lb in lbs.values():
-                fqdns = lb['fqdns']
-                fqdns = [f'{i}.' if i[-1] != '.' else i for i in fqdns]
-                lb['fqdns'] = fqdns
+                for lb in lbs.values():
+                    fqdns = lb['fqdns']
+                    fqdns = [f'{i}.' if i[-1] != '.' else i for i in fqdns]
+                    lb['fqdns'] = fqdns
 
-            # add .'s to fqdns that don't have them
-            self._lbs = lbs.values()
+                # add .'s to fqdns that don't have them
+                self._lbs = lbs.values()
 
         return self._lbs
 
